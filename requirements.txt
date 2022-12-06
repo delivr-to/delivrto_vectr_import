@@ -1,0 +1,4 @@
+pydantic
+gql
+requests-toolbelt
+python-dotenv
