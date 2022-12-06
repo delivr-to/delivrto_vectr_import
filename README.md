@@ -9,9 +9,9 @@ Upon executing, the tool will generate a new assessment and campaign in VECTR (i
 - Link Clicks
 - Sublime Security Rules Triggered  
 
-![Test Cases](assets/test_cases.png)
+![Test Cases](assets/test_cases.PNG)
 
-![Test Cases](assets/test_detail.png)
+![Test Cases](assets/test_detail.PNG)
 
 ## Installation
 
