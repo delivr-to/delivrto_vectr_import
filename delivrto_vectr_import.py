@@ -143,10 +143,6 @@ def user_prompt_confirms_continue(message):
     if not answer: return True
     return False
 
-def convert_timestamp_to_epoch(ts):
-    """Takes ISO 8601 format(string) and converts into epoch time."""
-    return int(isoparse(ts).timestamp() * 1000)
-
 def generate_vectr_test_case(vectr_con, email_json):
     email_id = ""
     file_name = ""
@@ -156,16 +152,15 @@ def generate_vectr_test_case(vectr_con, email_json):
     activity_logged = "TBD"
     try:
         email_id = email_json['email_id']
-        payload_id = email_json['payload_uuid']
+        #payload_id = email_json['payload_uuid']
         file_name = email_json['payload_name']
         delivery_type = 'Link' if email_json['mail_type'] == 'as_link' else 'Attachment'
         mitre_id = 'T1566.002' if delivery_type == 'Link' else 'T1566.001'
         tags = delivery_type
         description = f"""**Email ID**: {email_id}
-**Payload ID**: {payload_id}
 **Delivery type**: {delivery_type.capitalize()}
 """
-        references = f"https://delivr.to/payloads?id={payload_id}"
+        references = ""
         outcome_notes = ""
 
         if email_json['clicks']:
@@ -198,7 +193,7 @@ def generate_vectr_test_case(vectr_con, email_json):
 
         if 'junk' in email_status:
             tags+=",Junk"
-
+        print(email_status)
         outcome = ""
         if 'delivered' in email_status:
             outcome = "NOTDETECTED"
@@ -230,8 +225,8 @@ def generate_vectr_test_case(vectr_con, email_json):
         References=references,
         DetectingTools=detecting_tools,
         ActivityLogged=activity_logged,
-        StartTimeEpoch=convert_timestamp_to_epoch(email_json['sent']),
-        StopTimeEpoch=convert_timestamp_to_epoch(email_json['sent']),
+        StartTimeEpoch=email_json['sent'],
+        StopTimeEpoch=email_json['sent'],
         Organizations=vectr_con.org_name
     )
     

@@ -26,7 +26,7 @@ pip install -r requirements.txt
 
 1. Populate the `vectr.env` file with all required information for your VECTR instance, including API key.
 ```
-API_KEY="GYJBXXXXXXXXXXXXXXXX:XXXXXXXX/XXXXXXXXXX"
+API_KEY="<API KEY ID>:<SECRET KEY>"
 VECTR_GQL_URL="https://vectr.local:8081/sra-purpletools-rest/graphql"
 TARGET_DB="DELIVRTO"
 
@@ -37,6 +37,9 @@ ASSESSMENT_NAME = "THREAT INTEL"
 CAMPAIGN_NAME = "Links and Attachments"
 ```
 
+2. Export your campaign results as JSON from the `Campaign Results` view in [delivr.to](https://delivr.to)
+
+![Export Campaign Results](assets/export.png)
 
 ```
 usage: delivrto_vectr_import.py [-h] [--path PATH] [--step] [--no-banner]

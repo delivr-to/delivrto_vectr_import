@@ -1,4 +1,4 @@
-pydantic
-gql
-requests-toolbelt
-python-dotenv
+pydantic==1.10.12
+gql==3.4.1
+requests-toolbelt==1.0.0
+python-dotenv==0.21.0
