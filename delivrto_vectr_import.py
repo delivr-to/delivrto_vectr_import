@@ -1,5 +1,5 @@
 import os, json, argparse, datetime
-from dateutil.parser import isoparse
+from datetime import datetime, timezone
 
 ### VECTR API ###
 from dotenv import dotenv_values
@@ -14,7 +14,7 @@ from vectrapi.vectr_api_client import VectrGQLConnParams, \
 
 VECTR_CONFIG_FILE = "vectr.env"
 
-SUPPORTED_SECURITY_TOOL_INTEGRATIONS = [ "Sublime" ]
+SUPPORTED_SECURITY_TOOL_INTEGRATIONS = [ "Sublime", "Defender" ]
 
 #################
 """
@@ -29,7 +29,7 @@ def print_banner():
      ,,,.......................... ..   
      ,,,,,,, ........................   
      ,,,,,,,,,,,......... ...........   
-     ,,,,,,,,,,,,,,,,................   delivr.to VECTR results importer 
+     ,,,,,,,,,,,,,,,,................   delivr.to VECTR v9 results importer 
      ,,,,,,,,,,,,,,,,................   
      ,,,,,,,,,,,,,,,,................   https://delivr.to
      ,,,,,,,,,,,,,,,,................   
@@ -104,15 +104,15 @@ def initialise_vectr_connection():
 """
 Enumerate email tests in input JSON
 """
-def enumerate_email_tests(vectr_con, results_json, step=False):
+def enumerate_email_tests(vectr_con, results_json, step=False, debug=False):
     emails_uploaded = []
     if step:
         for email_json in results_json:
             file_name = email_json['payload_name']
-            delivery_type = 'link' if email_json['mail_type'] == 'as_link' else 'attachment'
+            delivery_type = 'link' if email_json['mail_type'] == 'link' else 'attachment'
             if not user_prompt_confirms_continue(f"[*] Process file '{file_name}' sent as {delivery_type}? [Y/n]"):
                 continue
-            vectr_test_case = generate_vectr_test_case(vectr_con, email_json)
+            vectr_test_case = generate_vectr_test_case(vectr_con, email_json, debug)
             if vectr_test_case:
                 if add_test_cases_to_vectr(vectr_con, [vectr_test_case]):
                     emails_uploaded.append(email_json['email_id'])
@@ -123,8 +123,11 @@ def enumerate_email_tests(vectr_con, results_json, step=False):
         email_test_cases = []
         for email_json in results_json:
             file_name = email_json['payload_name']
-            delivery_type = 'link' if email_json['mail_type'] == 'as_link' else 'attachment'
-            vectr_test_case = generate_vectr_test_case(vectr_con, email_json)
+            delivery_type = 'link' if email_json['mail_type'].lower() == 'link' else 'attachment'
+            vectr_test_case = generate_vectr_test_case(vectr_con, email_json, debug)
+            if debug:
+                print(f"    [-] Test Case Data:")
+                print(vectr_test_case)
             if vectr_test_case:
                 email_test_cases.append(vectr_test_case)
                 print(f"[+] Processed '{file_name}' sent as {delivery_type}")
@@ -143,33 +146,38 @@ def user_prompt_confirms_continue(message):
     if not answer: return True
     return False
 
-def generate_vectr_test_case(vectr_con, email_json):
+def generate_vectr_test_case(vectr_con, email_json, debug):
     email_id = ""
     file_name = ""
     delivery_type = ""
     mitre_id = ""
     detecting_tools = ""
     activity_logged = "TBD"
+    was_detected = False
     try:
         email_id = email_json['email_id']
-        #payload_id = email_json['payload_uuid']
         file_name = email_json['payload_name']
-        delivery_type = 'Link' if email_json['mail_type'] == 'as_link' else 'Attachment'
+        delivery_type = 'Link' if email_json['mail_type'].lower() == 'link' else 'Attachment'
+        payload_description = email_json.get('payload_description', "")
+        sent_epoch = int(datetime.strptime(email_json['sent'], '%Y-%m-%d %H:%M').replace(tzinfo=timezone.utc).timestamp()) * 1000
         mitre_id = 'T1566.002' if delivery_type == 'Link' else 'T1566.001'
-        tags = delivery_type
+        tags = [delivery_type]
+        payload_tags = email_json.get('payload_tags', [])
+        tags.extend(payload_tags)
         description = f"""**Email ID**: {email_id}
 **Delivery type**: {delivery_type.capitalize()}
+**Description**: {payload_description}
 """
-        references = ""
+        references = ",".join(email_json.get('payload_references', []))
         outcome_notes = ""
 
         if email_json['clicks']:
-            tags+=",Clicked"
+            tags.append("Clicked")
             outcome_notes+="**Clicks:**\n\n"
             outcome_notes+="| Timestamp | Method | User Agent | Source IP |\n"
             outcome_notes+="| - | - | - | - |\n"
             for click in email_json['clicks']:
-                ts = datetime.datetime.utcfromtimestamp(int(click['timestamp'])).isoformat()
+                ts = datetime.datetime.fromtimestamp(int(click['timestamp'])).isoformat()
                 outcome_notes+=f"| {ts} | {click['http_method']} | {click['user_agent']} | {click['source_ip']} |" + "\n"
             outcome_notes+="\n\n\n"
         
@@ -181,30 +189,59 @@ def generate_vectr_test_case(vectr_con, email_json):
                     detecting_tools+=f",{control_name}"
                     activity_logged="YES"
                     if control_name == "Sublime":
-                        outcome_notes+=f"**Sublime Action:** {mc_info[control]['state']}"+"\n\n"
+                        outcome_notes+=f"**Sublime:**\n\n"
+                        outcome_notes+=f"Action: `{mc_info[control]['state']}`\n\n"
                         if mc_info[control]['flagged_rules']:
-                            tags+=f",{control_name}"
-                            outcome_notes+="**Sublime Rules:**\n"
+                            was_detected=True
+                            tags.append(control_name)
+                            outcome_notes+="Rules:\n"
                             for rule in mc_info[control]['flagged_rules']:
-                                outcome_notes+=f" - {rule['name']}"
+                                outcome_notes+=f" - `{rule['name']}`"
                                 outcome_notes+="\n"
+                    if control_name == "Defender":
+                        outcome_notes+=f"**Defender**\n\n"
+                        outcome_notes+=f"Action: `{mc_info[control]['state']}`"+"\n\n"
+                        if "delivered" not in mc_info[control]['state'].lower():
+                           tags.append(control_name)
+                        if mc_info[control]['threat_types']:
+                            outcome_notes+="Threat Types:\n"
+                            for tt in mc_info[control]['threat_types'].split(','):
+                                # Defender isn't technically 'alerting' like Sublime 
+                                # so we'll leave this commented out
+                                # if tt != "Spam":
+                                #     was_detected=True
+                                outcome_notes+=f" - `{tt}`"
+                                outcome_notes+="\n"
+                            outcome_notes+="\n"    
+                        if mc_info[control]['threat_names']:
+                            outcome_notes+="Threat Names:\n"
+                            for tt in mc_info[control]['threat_names'].split(','):
+                                outcome_notes+=f" - `{tt}`"
+                                outcome_notes+="\n"
+                            outcome_notes+="\n"
+                        if mc_info[control]['detection_methods']:
+                            outcome_notes+="Detection Methods:\n\n"
+                            for tt in mc_info[control]['detection_methods']:
+                                for m in mc_info[control]['detection_methods'][tt]:
+                                    outcome_notes+=f" - `{tt}: {m}`"
+                                    outcome_notes+="\n"
 
         email_status = email_json['status'].lower()
 
         if 'junk' in email_status:
-            tags+=",Junk"
-        print(email_status)
+            tags.append("Junk")
+        
         outcome = ""
         if 'delivered' in email_status:
-            outcome = "NOTDETECTED"
+            outcome = "NOTDETECTED" if not was_detected else "DETECTED"
         elif email_status.startswith('blocked'):
             outcome = "BLOCKED"
             if 'dropped' in email_status:
-                tags+=",Dropped"
+                tags.append("Dropped")
             elif 'bounced' in email_status:
-                tags+=",Bounced"
+                tags.append("Bounced")
         elif email_status in ["stripped", "held", "rewritten"]:
-            tags+=f",{email_status.capitalize()}"
+            tags.append(email_status.capitalize())
             outcome = "BLOCKED"
         elif email_status.startswith('sent'):
             outcome = "TBD"
@@ -212,21 +249,32 @@ def generate_vectr_test_case(vectr_con, email_json):
         print(f"[!] Failed to process email result with error: {e}")
         return False
 
+    if debug:
+        print(f"""
+[+] Processing {file_name} sent as ({delivery_type})...
+    [-] Email ID: {email_id}
+    [-] File Name: {file_name}
+    [-] Delivery Type: {delivery_type}
+    [-] Outcome: {outcome}
+    [-] Alerted: {"Yes" if was_detected else "No"}
+    [-] Tags: {','.join(tags)}""")
+
     return TestCase(
         Variant=f"{file_name} ({delivery_type})",
         Objective=description,
         Phase="Initial Access",
         MitreID=mitre_id,
-        Tags=tags,
+        Tags=','.join(tags),
         Status="COMPLETED",
         Outcome=outcome,
-        Command="",
         OutcomeNotes=outcome_notes,
+        ExpectedDetectionLayers="Email Security Gateway",
+        AlertTriggered="YES" if was_detected else "NO",
         References=references,
         DetectingTools=detecting_tools,
         ActivityLogged=activity_logged,
-        StartTimeEpoch=email_json['sent'],
-        StopTimeEpoch=email_json['sent'],
+        StartTimeEpoch=sent_epoch,
+        StopTimeEpoch=sent_epoch,
         Organizations=vectr_con.org_name
     )
     
@@ -246,14 +294,16 @@ Parse arguments
 parser = argparse.ArgumentParser(
     description="Upload delivr.to campaign results to VECTR."
 )
-parser.add_argument("--path", help="Path to delivr.to campaign output." )
+parser.add_argument("--path", required=True, help="Path to delivr.to campaign output." )
 parser.add_argument("--step", action="store_true", help="Prompt user for confirmation before importing each email result into VECTR." )
 parser.add_argument("--no-banner", action="store_true", help="Suppress printing of banner." )
+parser.add_argument("--debug", action="store_true", help="Prints debug information for each email." )
 args = parser.parse_args()
 
 no_banner = args.no_banner
 step_import = args.step
 email_results_path = args.path
+debug = args.debug
 
 if not no_banner:
     print_banner()
@@ -273,7 +323,7 @@ except Exception as e:
 
 vectr_con = initialise_vectr_connection()
 
-emails_uploaded = enumerate_email_tests(vectr_con, results_json, step_import)
+emails_uploaded = enumerate_email_tests(vectr_con, results_json, step_import, debug)
 
 count_of_email_results_processed = len(emails_uploaded)
 print(f"\n[+] Completed results import to VECTR.")

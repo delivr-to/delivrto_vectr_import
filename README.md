@@ -51,6 +51,7 @@ optional arguments:
   --path PATH  Path to delivr.to campaign output.
   --step       Prompt user for confirmation before importing each email result into VECTR.
   --no-banner  Suppress printing of banner.
+  --debug      Prints debug information for each email.
 ```
 
 ## Example Output

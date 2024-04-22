@@ -35,29 +35,19 @@ class TestCase(BaseModel):
     sources: Optional[List[str]] = Field(alias="SourceIps")
     defenses: Optional[List[str]] = Field(alias="ExpectedDetectionLayers")
     detectionSteps: Optional[List[str]] = Field(alias="DetectionRecommendations")
-    outcome: Optional[str] = Field(alias="Outcome")
-    outcomeNotes: Optional[str] = Field(alias="OutcomeNotes")
-    alertSeverity: Optional[str] = Field(alias="AlertSeverity")
     alertTriggered: Optional[str] = Field(alias="AlertTriggered")
     activityLogged: Optional[str] = Field(alias="ActivityLogged")
-    detectionTime: Optional[float] = Field(alias="DetectionTimeEpoch")
+    outcome: Optional[str] = Field(alias="Outcome")
+    outcomePath: Optional[str] = Field(alias="Outcome Path")
+    outcomeNotes: Optional[str] = Field(alias="OutcomeNotes")
+    alertSeverity: Optional[str] = Field(alias="Alert Severity")
+    detectionTime: Optional[float] = Field(alias="Detection Time Epoch")
     detectingDefenseTools: Optional[List[Dict[str, str]]] = Field(alias="DetectingTools")
     references: Optional[List[str]] = Field(alias="References")
-    redTools: Optional[List[Dict[str, str]]] = Field(alias="AttackerTools")
+    redTools: Optional[List[Dict[str, str]]] = Field(alias="Attacker Tools")
     operatorGuidance: Optional[str] = Field(alias="Command")
     attackStart: Optional[float] = Field(alias="StartTimeEpoch")
     attackStop: Optional[float] = Field(alias="StopTimeEpoch")
-
-    # @TODO - need to add to API
-    # -------------------------------------
-    # outcome_notes: Optional[str] = Field(alias="Outcome Notes")
-    # -------------------------------------
-    # @NOTE - Not supported by API
-    # -------------------------------------
-    # technique: Optional[str] = Field(alias="Method")
-    # start_time_epoch: Optional[int]
-    # stop_time_epoch: Optional[int]
-    # detection_time_epoch: Optional[int]
 
     @root_validator(pre=True)
     def check_technique(cls, values):
@@ -69,7 +59,6 @@ class TestCase(BaseModel):
             values['MitreID'] = values['Method']
             return values
 
-        print(values)
         raise ValueError("Non-empty Method (Attack Technique) or MitreID required for Test Case creation")
 
     # @TODO - combine for reuse, getting weird behavior with multiple annotations
@@ -146,23 +135,27 @@ class TestCase(BaseModel):
 
     @validator('status', pre=True, allow_reuse=True)
     def validate_upper_enum1(cls, v: str) -> str:
-        return v.upper()
+        return v
 
     @validator('outcome', pre=True, allow_reuse=True)
     def validate_upper_enum2(cls, v: str) -> str:
-        return v.upper()
+        return v
+
+    @validator('outcomeNotes', pre=True, allow_reuse=True)
+    def validate_outcomeNotes(cls, v: str) -> Optional[str]:
+        return v
 
     @validator('alertSeverity', pre=True, allow_reuse=True)
     def validate_upper_enum3(cls, v: str) -> str:
-        return v.upper()
+        return v
 
     @validator('alertTriggered', pre=True, allow_reuse=True)
     def validate_upper_enum4(cls, v: str) -> str:
-        return v.upper()
+        return v
 
     @validator('activityLogged', pre=True, allow_reuse=True)
     def validate_upper_enum5(cls, v: str) -> str:
-        return v.upper()
+        return v
 
     @validator('attackStart', pre=True, allow_reuse=True)
     def validate_attack_start(cls, v: str) -> Optional[float]:
