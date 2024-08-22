@@ -171,12 +171,12 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
         references = ",".join(email_json.get('payload_references', []))
         outcome_notes = ""
 
-        if email_json['clicks']:
+        if 'clicks' in email_json:
             tags.append("Clicked")
             outcome_notes+="**Clicks:**\n\n"
             outcome_notes+="| Timestamp | Method | User Agent | Source IP |\n"
             outcome_notes+="| - | - | - | - |\n"
-            for click in email_json['clicks']:
+            for click in email_json.get('clicks',[]):
                 ts = datetime.fromtimestamp(int(click['timestamp'])).isoformat()
                 outcome_notes+=f"| {ts} | {click['http_method']} | {click['user_agent']} | {click['source_ip']} |" + "\n"
             outcome_notes+="\n\n\n"
