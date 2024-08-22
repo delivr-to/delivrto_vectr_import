@@ -177,7 +177,7 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
             outcome_notes+="| Timestamp | Method | User Agent | Source IP |\n"
             outcome_notes+="| - | - | - | - |\n"
             for click in email_json['clicks']:
-                ts = datetime.datetime.fromtimestamp(int(click['timestamp'])).isoformat()
+                ts = datetime.fromtimestamp(int(click['timestamp'])).isoformat()
                 outcome_notes+=f"| {ts} | {click['http_method']} | {click['user_agent']} | {click['source_ip']} |" + "\n"
             outcome_notes+="\n\n\n"
         
@@ -187,7 +187,7 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
                 if control.capitalize() in SUPPORTED_SECURITY_TOOL_INTEGRATIONS:
                     control_name = control.capitalize()
                     detecting_tools+=f",{control_name}"
-                    activity_logged="YES"
+                    activity_logged="Yes"
                     if control_name == "Sublime":
                         outcome_notes+=f"**Sublime:**\n\n"
                         outcome_notes+=f"Action: `{mc_info[control]['state']}`\n\n"
@@ -265,11 +265,11 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
         Phase="Initial Access",
         MitreID=mitre_id,
         Tags=','.join(tags),
-        Status="COMPLETED",
+        Status="Completed",
         Outcome=outcome,
         OutcomeNotes=outcome_notes,
         ExpectedDetectionLayers="Email Security Gateway",
-        AlertTriggered="YES" if was_detected else "NO",
+        AlertTriggered="Yes" if was_detected else "No",
         References=references,
         DetectingTools=detecting_tools,
         ActivityLogged=activity_logged,
