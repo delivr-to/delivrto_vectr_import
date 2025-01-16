@@ -37,7 +37,7 @@ ASSESSMENT_NAME = "THREAT INTEL"
 CAMPAIGN_NAME = "Links and Attachments"
 ```
 
-2. Export your campaign results as JSON from the `Campaign Results` view in [delivr.to](https://delivr.to)
+2. Export your campaign results as JSON from the `Campaign Results` view in [delivr.to](https://delivr.to), or directly via the API.
 
 ![Export Campaign Results](assets/export.png)
 

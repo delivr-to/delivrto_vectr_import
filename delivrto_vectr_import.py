@@ -1,4 +1,4 @@
-import os, json, argparse, datetime
+import os, re, json, argparse, datetime
 from datetime import datetime, timezone
 
 ### VECTR API ###
@@ -102,14 +102,27 @@ def initialise_vectr_connection():
     return vectr_connection(org_name, connection_params, target_db, campaign_name, campaign_id)
 
 """
+Fetch mail type for API or UI results JSON
+"""
+def get_mail_type(mail_type):
+    if mail_type in ['as_link', 'Link']:
+        return 'Link'
+    elif mail_type in ['as_attachment', 'Attachment']:
+        return 'Attachment'
+    elif mail_type in ['as_body', 'Body']:
+        return 'Body'
+    else:
+        return None
+
+"""
 Enumerate email tests in input JSON
 """
 def enumerate_email_tests(vectr_con, results_json, step=False, debug=False):
     emails_uploaded = []
     if step:
         for email_json in results_json:
-            file_name = email_json['payload_name']
-            delivery_type = 'link' if email_json['mail_type'] == 'link' else 'attachment'
+            delivery_type = get_mail_type(email_json['mail_type'])
+
             if not user_prompt_confirms_continue(f"[*] Process file '{file_name}' sent as {delivery_type}? [Y/n]"):
                 continue
             vectr_test_case = generate_vectr_test_case(vectr_con, email_json, debug)
@@ -123,7 +136,9 @@ def enumerate_email_tests(vectr_con, results_json, step=False, debug=False):
         email_test_cases = []
         for email_json in results_json:
             file_name = email_json['payload_name']
-            delivery_type = 'link' if email_json['mail_type'].lower() == 'link' else 'attachment'
+            
+            delivery_type = get_mail_type(email_json['mail_type'])
+
             vectr_test_case = generate_vectr_test_case(vectr_con, email_json, debug)
             if debug:
                 print(f"    [-] Test Case Data:")
@@ -157,10 +172,20 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
     try:
         email_id = email_json['email_id']
         file_name = email_json['payload_name']
-        delivery_type = 'Link' if email_json['mail_type'].lower() == 'link' else 'Attachment'
+        delivery_type = get_mail_type(email_json['mail_type'])
         payload_description = email_json.get('payload_description', "")
-        sent_epoch = int(datetime.strptime(email_json['sent'], '%Y-%m-%d %H:%M').replace(tzinfo=timezone.utc).timestamp()) * 1000
-        mitre_id = 'T1566.002' if delivery_type == 'Link' else 'T1566.001'
+        if re.match(r"^\d{10}$", email_json['sent']):
+            sent_epoch = int(email_json['sent']) * 1000
+        else:
+            sent_epoch = int(datetime.strptime(email_json['sent'], '%Y-%m-%d %H:%M').replace(tzinfo=timezone.utc).timestamp()) * 1000
+    
+        if delivery_type == 'Link':
+            mitre_id = 'T1566.002'
+        elif delivery_type == 'Attachment':
+            mitre_id = 'T1566.001'
+        else: #body
+            mitre_id = 'T1566'
+        
         tags = [delivery_type]
         payload_tags = email_json.get('payload_tags', [])
         tags.extend(payload_tags)
@@ -171,7 +196,7 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
         references = ",".join(email_json.get('payload_references', []))
         outcome_notes = ""
 
-        if 'clicks' in email_json:
+        if 'clicks' in email_json and len(email_json['clicks']) > 0:
             tags.append("Clicked")
             outcome_notes+="**Clicks:**\n\n"
             outcome_notes+="| Timestamp | Method | User Agent | Source IP |\n"
@@ -180,51 +205,66 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
                 ts = datetime.fromtimestamp(int(click['timestamp'])).isoformat()
                 outcome_notes+=f"| {ts} | {click['http_method']} | {click['user_agent']} | {click['source_ip']} |" + "\n"
             outcome_notes+="\n\n\n"
+
+        if 'sendgrid_reason' in email_json:
+            outcome_notes+="**Gateway Response:**\n\n"
+            outcome_notes+=f"```\n{email_json['sendgrid_reason']}\n```\n\n\n"
         
-        if 'mail_control_information' in email_json:
-            mc_info = email_json['mail_control_information']
-            for control in mc_info:
-                if control.capitalize() in SUPPORTED_SECURITY_TOOL_INTEGRATIONS:
-                    control_name = control.capitalize()
-                    detecting_tools+=f",{control_name}"
-                    activity_logged="Yes"
-                    if control_name == "Sublime":
-                        outcome_notes+=f"**Sublime:**\n\n"
-                        outcome_notes+=f"Action: `{mc_info[control]['state']}`\n\n"
-                        if mc_info[control]['flagged_rules']:
-                            was_detected=True
-                            tags.append(control_name)
-                            outcome_notes+="Rules:\n"
-                            for rule in mc_info[control]['flagged_rules']:
-                                outcome_notes+=f" - `{rule['name']}`"
-                                outcome_notes+="\n"
-                    if control_name == "Defender":
-                        outcome_notes+=f"**Defender**\n\n"
-                        outcome_notes+=f"Action: `{mc_info[control]['state']}`"+"\n\n"
-                        if "delivered" not in mc_info[control]['state'].lower():
-                           tags.append(control_name)
-                        if mc_info[control]['threat_types']:
-                            outcome_notes+="Threat Types:\n"
-                            for tt in mc_info[control]['threat_types'].split(','):
-                                # Defender isn't technically 'alerting' like Sublime 
-                                # so we'll leave this commented out
-                                # if tt != "Spam":
-                                #     was_detected=True
-                                outcome_notes+=f" - `{tt}`"
-                                outcome_notes+="\n"
-                            outcome_notes+="\n"    
-                        if mc_info[control]['threat_names']:
-                            outcome_notes+="Threat Names:\n"
-                            for tt in mc_info[control]['threat_names'].split(','):
-                                outcome_notes+=f" - `{tt}`"
-                                outcome_notes+="\n"
+        mail_controls = []
+        for k,v in email_json.items():
+            if k.startswith('mail_control_information'):
+                if k == 'mail_control_information':
+                    for control in v:
+                        control = control.capitalize()
+                        mail_controls.append((control, v[control]))
+                else:
+                    control = k.replace('mail_control_information.', '')
+                    control = control.capitalize()
+                    v = email_json[f"mail_control_information.{control}"]
+                    mail_controls.append((control, v))
+
+        for control, v in mail_controls:                
+            if control in SUPPORTED_SECURITY_TOOL_INTEGRATIONS:
+                control_name = control.capitalize()
+                detecting_tools+=f",{control_name}"
+                activity_logged="Yes"
+                if control_name == "Sublime":
+                    outcome_notes+=f"**Sublime:**\n\n"
+                    outcome_notes+=f"Action: `{v['state']}`\n\n"
+                    if v['flagged_rules']:
+                        was_detected=True
+                        tags.append(control_name)
+                        outcome_notes+="Rules:\n"
+                        for rule in v['flagged_rules']:
+                            outcome_notes+=f" - `{rule['name']}`"
                             outcome_notes+="\n"
-                        if mc_info[control]['detection_methods']:
-                            outcome_notes+="Detection Methods:\n\n"
-                            for tt in mc_info[control]['detection_methods']:
-                                for m in mc_info[control]['detection_methods'][tt]:
-                                    outcome_notes+=f" - `{tt}: {m}`"
-                                    outcome_notes+="\n"
+                if control_name == "Defender":
+                    outcome_notes+=f"**Defender**\n\n"
+                    outcome_notes+=f"Action: `{v['state']}`"+"\n\n"
+                    if "delivered" not in v['state'].lower():
+                        tags.append(control_name)
+                    if v['threat_types']:
+                        outcome_notes+="Threat Types:\n"
+                        for tt in v['threat_types'].split(','):
+                            # Defender isn't technically 'alerting' like Sublime 
+                            # so we'll leave this commented out
+                            # if tt != "Spam":
+                            #     was_detected=True
+                            outcome_notes+=f" - `{tt}`"
+                            outcome_notes+="\n"
+                        outcome_notes+="\n"    
+                    if v['threat_names']:
+                        outcome_notes+="Threat Names:\n"
+                        for tt in v['threat_names'].split(','):
+                            outcome_notes+=f" - `{tt}`"
+                            outcome_notes+="\n"
+                        outcome_notes+="\n"
+                    if v['detection_methods']:
+                        outcome_notes+="Detection Methods:\n\n"
+                        for tt in v['detection_methods']:
+                            for m in v['detection_methods'][tt]:
+                                outcome_notes+=f" - `{tt}: {m}`"
+                                outcome_notes+="\n"
 
         email_status = email_json['status'].lower()
 
@@ -257,7 +297,9 @@ def generate_vectr_test_case(vectr_con, email_json, debug):
     [-] Delivery Type: {delivery_type}
     [-] Outcome: {outcome}
     [-] Alerted: {"Yes" if was_detected else "No"}
-    [-] Tags: {','.join(tags)}""")
+    [-] Controls: {', '.join([c[0] for c in mail_controls])}
+    [-] Tags: {', '.join(tags)}
+""")
 
     return TestCase(
         Variant=f"{file_name} ({delivery_type})",
@@ -316,6 +358,11 @@ results_json = []
 try:
     with open(email_results_path, 'r') as data_file:
         results_json = json.load(data_file)
+        if 'emails' in results_json:
+            results_json = results_json['emails']
+            print(f"[*] Handling API results export.")
+        else:
+            print(f"[*] Handling UI results export.")
     print(f"[*] {len(results_json)} emails to be processed.")
 except Exception as e:
     print("[!] Failed to process JSON from specified path, is it valid JSON?")
