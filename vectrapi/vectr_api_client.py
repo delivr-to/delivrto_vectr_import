@@ -25,7 +25,7 @@ def get_client(connection_params: VectrGQLConnParams):
         headers={"Authorization": "VEC1 " + connection_params.api_key}
     )
 
-    return Client(transport=transport, fetch_schema_from_transport=True)
+    return Client(transport=transport, fetch_schema_from_transport=False)
 
 
 def create_assessment(connection_params: VectrGQLConnParams,
